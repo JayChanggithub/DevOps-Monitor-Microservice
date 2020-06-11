@@ -1,0 +1,198 @@
+variables:
+  sut_ip: "10.99.104.214"
+  reference: "test.msg"
+  SSH_PORT: "22"
+  script_cmd: "'bash PromeDataBackup.sh'"
+
+.tool: &tool
+  before_script:
+    - apk add --update curl git jq python 2> /dev/null && rm -rf /var/cache/apk/* || true
+    - git clone $TOOLS_PROJECT
+  tags:
+    - TA-LONG-RUN-TEST
+
+.normal: &normal
+  before_script:
+    - chmod 755 *.sh *.py || true
+    - export VERSION=$(egrep -o 'Rev\:\ ([0-9].){2}[0-9]+' README.md | awk '{print $NF}')
+    - sed -i "s,<SRV_USER>,${SRV_USER},g" $PWD/inventory
+    - sed -i "s,<SRV_PASS>,${SRV_PASS},g" $PWD/inventory
+    - sed -i "s,<SRV_IP>,${sut_ip},g" $PWD/inventory
+    - sed -i "s,<PORT>,${SSH_PORT},g" $PWD/inventory
+    - ansible "*" -i $PWD/inventory -m shell -a "echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin" -b
+  after_script:
+    - - ansible "*" -i $PWD/inventory -m shell -a "docker logout"
+  tags:
+    - TA-LONG-RUN-TEST
+
+stages:
+  - lintcheck
+  - deployment
+  - snapshots
+  - release
+  - cleanup
+
+codeReview:Shell:
+  <<: *normal
+  stage: lintcheck
+  image: registry.ipt-gitlab:8081/sit-develop-tool/shellcheck:$SHCHECK_VER
+  before_script:
+    - echo "Starting Shell coding style verification."
+  script:
+    - find . -iname "*.sh" | xargs shellcheck -s bash --color=always || true
+  after_script:
+    - echo "Finish coding style verification."
+  tags:
+    - IPT-K8S-NODE2
+  only:
+    - master
+    - pushes
+  except:
+    - schedules
+
+deployMonitor:
+  <<: *normal
+  image: registry.ipt-gitlab:8081/sit-develop-tool/tool-ansible:$ANSIBLE_VER
+  stage: deployment
+  script:
+    - |
+        ansible-playbook -i $PWD/inventory $PWD/deploy.yaml
+  environment:
+    name: production
+  tags:
+    - TA-LONG-RUN-TEST
+  only:
+    - pushes
+    - master
+      # changes:
+      # - monitor/grafana/*.yaml
+      # - monitor/metrics/*.yaml
+      # - monitor/prometheus/*.yaml
+    #refs:
+    #  - master
+  except:
+    - schedules
+
+snapshotsPromeData:
+
+  image: registry.ipt-gitlab:8081/sit-develop-tool/tool-ansible:$ANSIBLE_VER
+  stage: snapshots
+  before_script:
+    - |
+        export VERSION=$(egrep -o 'Rev\:\ ([0-9].){2}[0-9]+' README.md | awk '{print $NF}')
+
+        # define the inventory file
+        if [ -f ${PWD}/hosts ]; then
+            export host_conf=hosts
+        else
+            export host_conf=inventory
+        fi
+
+        # print variables
+        more << EOF
+        Show variables:
+        ===========================================================================
+        EXE_PATH: $EXE_PATH
+        WORK_PATH: $WORK_PATH
+        SUT_IP: $sut_ip
+        VERSION: $VERSION
+        ===========================================================================
+        EOF
+
+
+        # configure inventory file
+        sed -i "s,<SRV_USER>,${SRV_USER},g" $PWD/inventory
+        sed -i "s,<SRV_PASS>,${SRV_PASS},g" $PWD/inventory
+        sed -i "s,<SRV_IP>,${sut_ip},g" $PWD/inventory
+        sed -i "s,<PORT>,${SSH_PORT},g" $PWD/inventory
+
+        # deploy tools
+        ansible "*" -i ${PWD}/$host_conf -m shell -a "mkdir -p $WORK_PATH" -b
+        ansible "*" -i ${PWD}/$host_conf -m shell -a "rm -rf $EXE_PATH" -b
+        ansible "*" -i ${PWD}/$host_conf -m copy  -a "src=$PWD dest=$WORK_PATH owner=$SRV_USER group=$SRV_USER" -b
+        ansible "*" -i ${PWD}/$host_conf -m shell -a "cd $EXE_PATH && chmod 755 *.sh *.py" || true
+        echo "Configure server done."
+
+  script:
+    - |
+
+        # run schedule task
+        more << EOF
+        ===========================================================================
+        Starting run task on each server...
+         - Run time: $(date '+[%F %T]')
+         - Run command as below:
+            - ${script_cmd}
+        ===========================================================================
+        EOF
+        ansible "*" -i ${PWD}/$host_conf -m shell -a "cd $EXE_PATH && bash -c ${script_cmd}" -b
+
+  after_script:
+    - |
+        if [ -f ${PWD}/hosts ]; then
+           export host_conf=hosts
+        else
+           export host_conf=inventory
+        fi
+
+        # generate artifacts in each host
+        for e in $(grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' $host_conf)
+        do
+            ansible "*" -i ${PWD}/$host_conf -m shell -a "cd $EXE_PATH && tar zcvf reports.tar.gz reports/" \
+                        -b
+            ansible "*" -i ${PWD}/$host_conf -m fetch -a "dest=$PWD src=${EXE_PATH}/reports.tar.gz" \
+                        -b
+            mv ${e}/${EXE_PATH}/reports.tar.gz . \
+               && tar zxvf reports.tar.gz \
+               && rm -f reports.tar.gz
+            if [ -d $e ]; then
+                rm -rf $e
+            fi
+            mkdir ${e}-Report && mv reports ${e}-Report/test-logs
+        done
+
+        # collect logs and clear scripts
+        ansible "*" -i ${PWD}/$host_conf -m shell -a "rm -rf $EXE_PATH" \
+                    -b
+        # save console output to log in each host
+        for e in $(grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' $host_conf)
+        do
+            curl -s --location ${CI_JOB_URL}/raw > ${e}-Report/console.log
+            sed -i -r 's/'$(echo -e "\033")'\[[0-9]{1,2}(;([0-9]{1,2})?)?[mK]|\r//g' ${e}-Report/console.log
+        done
+  artifacts:
+    name: ${CI_PROJECT_NAME}-Logs
+    expire_in: 10d
+    when: on_failure
+    paths:
+      - ${PWD}/*.*.*.*-Report
+  tags:
+    - TA-SLAVE-RUNNER
+  only:
+    - schedules
+    - master
+  except:
+    - pushes
+  when: always
+
+Release:
+  <<: *tool
+  stage: release
+  script:
+    - sh tool-gitlab-deployment/pipeline_mail.sh
+  tags:
+    - IPT-K8S-NODE2
+  only:
+    - master
+    - schedules
+  except:
+    - pushes
+
+cleanEnv:
+  <<: *tool
+  stage: cleanup
+  script:
+    - sh tool-gitlab-deployment/pipeline_clean.sh
+  tags:
+    - TA-LONG-RUN-TEST
+  when: always

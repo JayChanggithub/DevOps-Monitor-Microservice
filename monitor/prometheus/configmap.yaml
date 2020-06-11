@@ -1,0 +1,370 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: kube-monitor
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s
+      evaluation_interval: 15s
+
+    rule_files:
+    - /etc/prometheus/rules.yml
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets: ["alertmanager.cloudnative.ies.inventec:80"]
+
+    scrape_configs:
+    - job_name: 'ipt-k8s-node1'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.214:31672'
+        labels:
+          hostname: 'ipt-k8s-node1'
+          instance: '10.99.104.214:31672'
+
+    - job_name: 'ipt-k8s-node2'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.219:31672'
+        labels:
+          hostname: 'ipt-k8s-node2'
+          instance: '10.99.104.219:31672'
+
+    - job_name: 'ipt-k8s-node3'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.241:31672'
+        labels:
+          hostname: 'ipt-k8s-node3'
+          instance: '10.99.104.241:31672'
+
+    - job_name: 'ipt-k8s-node4'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.250:31672'
+        labels:
+          hostname: 'ipt-k8s-node4'
+          instance: '10.99.104.250:31672'
+
+    - job_name: 'vagrant-server'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.251:9100'
+        labels:
+          hostname: 'vagrant-server'
+          instance: '10.99.104.251:9100'
+
+    - job_name: 'ipt-gitlab'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.242:9100'
+        labels:
+          hostname: 'ipt-gitlab'
+          instance: '10.99.104.242:9100'
+
+    - job_name: 'IPT-SIT-BACKUP'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - '10.99.104.243:9100'
+        labels:
+          hostname: 'IPT-SIT-BACKUP'
+          instance: '10.99.104.243:9100'
+
+    - job_name: 'mongodb-cluster'
+      metrics_path: /metrics
+      static_configs:
+      - targets:
+        - 'mongo-exporter.kube-monitor.svc.cluster.local:9104'
+        labels:
+          hostname: 'mongodb-cluster'
+          instance: 'mongo-exporter.kube-monitor.svc.cluster.local:9104'
+      metric_relabel_configs:
+      - source_labels: [mongodb_up]
+        regex: (.+)
+        target_label: up
+        action: replace
+
+    - job_name: 'redis-cluster'
+      metrics_path: /metrics
+      static_configs:
+      - targets: [
+          'redis-app-0.redis-service.kube-ops.svc.cluster.local:9121',
+          'redis-app-1.redis-service.kube-ops.svc.cluster.local:9121',
+          'redis-app-2.redis-service.kube-ops.svc.cluster.local:9121',
+          'redis-app-3.redis-service.kube-ops.svc.cluster.local:9121',
+          'redis-app-4.redis-service.kube-ops.svc.cluster.local:9121',
+          'redis-app-5.redis-service.kube-ops.svc.cluster.local:9121'
+        ]
+      relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+
+    - job_name: 'kubernetes-etcd'
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/k8s-certs/etcd/ca.pem
+        cert_file: /var/run/secrets/kubernetes.io/k8s-certs/etcd/server.pem
+        key_file: /var/run/secrets/kubernetes.io/k8s-certs/etcd/server-key.pem
+      metrics_path: /metrics
+      static_configs:
+      - targets: ['10.99.104.214:2379','10.99.104.219:2379','10.99.104.241:2379']
+
+    - job_name: 'kubernetes-apiservers'
+      kubernetes_sd_configs:
+      - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics
+
+    - job_name: 'kubernetes-cadvisor'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+    - job_name: 'kubernetes-service-endpoints'
+      kubernetes_sd_configs:
+      - role: endpoints
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_name
+
+    - job_name: 'kubernetes-services'
+      kubernetes_sd_configs:
+      - role: service
+      metrics_path: /probe
+      params:
+        module: [http_2xx]
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_probe]
+        action: keep
+        regex: true
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter.example.com:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: kubernetes_name
+
+    - job_name: 'kubernetes-ingresses'
+      kubernetes_sd_configs:
+      - role: ingress
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_ingress_annotation_prometheus_io_probe]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_ingress_scheme,__address__,__meta_kubernetes_ingress_path]
+        regex: (.+);(.+);(.+)
+        replacement: ${1}://${2}${3}
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter.example.com:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_ingress_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_ingress_name]
+        target_label: kubernetes_name
+
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+  rules.yml: |
+    groups:
+    - name: BasicAlert
+      rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes.\n"
+
+      - alert: APIHighRequestLatency
+        expr: api_http_request_latencies_second{quantile="0.5"} > 1
+        for: 10m
+        annotations:
+          summary: "High request latency on {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has a median request latency above 1s (current value: {{ $value }}s)\n"
+
+      - alert: NodeMemoryUsage
+        expr: 100 - (node_memory_MemFree_bytes+node_memory_Cached_bytes+node_memory_Buffers_bytes) / node_memory_MemTotal_bytes * 100 > 80
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Instance {{ $labels.instance }} 内存使用率过高"
+          description: "{{ $labels.instance }}内存使用大于 80% (当前值: {{ $value }})\n"
+
+    #  - alert: ContainerMemoryUsage
+    #    expr: (sum(container_memory_usage_bytes) BY (instance, name) / sum(container_spec_memory_limit_bytes) BY (instance, name) * 100) > 80
+    #    for: 5m
+    #    labels:
+    #      severity: warning
+    #    annotations:
+    #      summary: "Container Memory usage (instance {{ $labels.instance }})"
+    #      description: "Container Memory usage is above 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+    #
+    #  - alert: ContainerCpuUsage
+    #    expr: (sum(rate(container_cpu_usage_seconds_total[1m])) BY (instance, name) * 100) > 80
+    #    for: 5m
+    #    labels:
+    #      severity: warning
+    #    annotations:
+    #      summary: "Container CPU usage (instance {{ $labels.instance }})"
+    #      description: "Container CPU usage is above 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host high CPU load (instance {{ $labels.instance }})"
+          description: "CPU load is > 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+    - name: RedisAlert
+      rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis down (instance {{ $labels.instance }})"
+          description: "Redis instance is down\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: RedisMissingMaster
+        expr: count(redis_instance_info{role="master"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis missing master (instance {{ $labels.instance }})"
+          description: "Redis cluster has no node marked as master.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: RedisReplicationBroken
+        expr: delta(redis_connected_slaves[1m]) < 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis replication broken (instance {{ $labels.instance }})"
+          description: "Redis instance lost a slave\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: RedisOutOfMemory
+        expr: redis_memory_used_bytes / redis_total_system_memory_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis out of memory (instance {{ $labels.instance }})"
+          description: "Redis is running out of memory (> 90%)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: RedisMissingBackup
+        expr: time() - redis_rdb_last_save_timestamp_seconds > 60 * 60 * 24
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis missing backup (instance {{ $labels.instance }})"
+          description: "Redis has not been backuped for 24 hours\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"

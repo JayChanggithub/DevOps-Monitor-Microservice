@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-exporter
+  namespace: kube-monitor
+  labels:
+    k8s-app: mongo-exporter
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      k8s-app: mongo-exporter
+  template:
+    metadata:
+      labels:
+        k8s-app: mongo-exporter
+    spec:
+      containers:
+      - name: mongo-exporter
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/mongo-exporter:__VERSION__
+        args: ["--web.listen-address=:9104", "--mongodb.uri", "mongodb://mongo-0.mongo.kube-ops.svc.cluster.local:27017,mongo-1.mongo.kube-ops.svc.cluster.local:27017,mongo-2.mongo.kube-ops.svc.cluster.local:27017/?replicaSet=rs0"]
+        ports:
+        - containerPort: 9104
+          name: http    
+      imagePullSecrets:
+      - name: gitlab-registry
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    k8s-app: mongo-exporter
+  name: mongo-exporter
+  namespace: kube-monitor
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 9104
+    nodePort: 30017
+    targetPort: http
+  selector:
+    k8s-app: mongo-exporter
+    
+    
+---
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: mongo-exporter-ingress
+  namespace: kube-monitor
+spec:
+  rules:
+  - host: mongo-exporter.cloudnative.ies.inventec
+    http:
+      paths:
+      - backend:
+          serviceName: mongo-exporter
+          servicePort: http

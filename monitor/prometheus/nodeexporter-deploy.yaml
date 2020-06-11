@@ -1,0 +1,55 @@
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: kube-monitor
+  labels:
+    k8s-app: node-exporter
+spec:
+  template:
+    metadata:
+      labels:
+        k8s-app: node-exporter
+    spec:
+      containers:
+      - image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/node-exporter:__VERSION__
+        name: node-exporter
+        ports:
+        - containerPort: 9100
+          protocol: TCP
+          name: http
+      imagePullSecrets:
+      - name: gitlab-registry
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    k8s-app: node-exporter
+  name: node-exporter
+  namespace: kube-monitor
+spec:
+  ports:
+  - name: http
+    port: 9100
+    nodePort: 31672
+    protocol: TCP
+  type: NodePort
+  selector:
+    k8s-app: node-exporter
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: nodeexporter-ingress
+  namespace: kube-monitor
+spec:
+  rules:
+  - host: nodeexporter.cloudnative.ies.inventec
+    http:
+      paths:
+      - backend:
+          serviceName: node-exporter
+          servicePort: 9100

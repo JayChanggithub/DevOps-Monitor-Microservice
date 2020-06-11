@@ -1,0 +1,139 @@
+- hosts: all
+  gather_facts: True
+  vars_files:
+    - ./variables/variables.yaml
+  tasks:
+    - name: Test connectivity
+      ping:
+      register: result
+
+    - name: Print result
+      debug:
+        msg: "{{ result['ping'] }}"
+
+    - name: Deploy public key to nodes
+      shell: |
+        if [ $(ls -al ~/.ssh/ | grep -ci 'id_rsa') -ne 0 ]; then
+            echo '~/.ssh/ not empty.'
+            rm -rf ~/.ssh/*
+        fi
+        yes | cp -rf ./ssh/id_rsa ~/.ssh/
+        chmod 700 ~/.ssh/id_rsa
+        sshpass -p "{{ ansible_ssh_pass }}" \
+        ssh-copy-id -i {{ ssh_pub_key }} \
+        root@{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }} -o StrictHostKeychecking=no
+      args:
+        executable: /bin/bash
+      delegate_to: "localhost"
+      register: pub_key_result
+
+    - name: Defined the monitor directory
+      shell: echo {{ remote_plugin }}/monitor
+      register: monitor_dir
+
+    - name: Showing the execute monitor path
+      debug:
+        msg: "{{ monitor_dir.stdout }}"
+
+    - name: Create deploy directory
+      file:
+        path: "{{ monitor_dir.stdout }}"
+        recurse: yes
+        state: directory
+        mode: 0755
+        group: root
+        owner: root
+
+    - name: Copy monitor folder to remote host
+      copy: src={{ item.src }} dest={{ item.dest }}
+      with_items:
+        - { src: './README.md', dest: "{{ monitor_dir.stdout }}" }
+        - { src: './monitor', dest: "{{ monitor_dir.stdout }}" }
+        - { src: './reports', dest: "{{ monitor_dir.stdout }}" }
+
+    - name: Modified "prometheus" {{ prometheus_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/prometheus/{{ prometheus_deploy_config }}"
+        replace: "{{ prometheus_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ prometheus_deploy_config  }}"
+
+
+    - name: Modified "mongo-exporter" {{ mongo_exporter_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/prometheus/{{ mongo_exporter_deploy_config }}"
+        replace: "{{ mongo_exporter_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ mongo_exporter_deploy_config }}"
+
+    - name: Modified "grafana" {{ grafana_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/grafana/{{ grafana_deploy_config }}"
+        replace: "{{ grafana_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ grafana_deploy_config }}"
+
+    - name: Modified "nodeexporter" {{ nodeexporter_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/prometheus/{{ nodeexporter_deploy_config }}"
+        replace: "{{ node_exporter_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ nodeexporter_deploy_config }}"
+
+    - name: Modified "metrics" {{ metrics_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/metrics/{{ metrics_deploy_config }}"
+        replace: "{{ metrics_server_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ metrics_deploy_config  }}"
+
+    - name: Modified "kube-state-metrics" {{ kube_state_metrics_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/kube-state-metrics/{{ kube_state_metrics_deploy_config }}"
+        replace: "{{ kube_state_metrics_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ kube_state_metrics_deploy_config }}"
+
+    - name: Modified "alert-manager" {{ alert_manager_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/alert-manager/{{ alert_manager_deploy_config }}"
+        replace: "{{ alertmanager_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ alert_manager_deploy_config }}"
+
+    - name: Docker login our registry server
+      shell: |
+        echo "{{ gitlab_token }}" | \
+        docker login -u iec070781 registry.ipt-gitlab:8081 --password-stdin
+      args:
+        executable: /bin/bash
+      register: dockerlogin_result
+
+    - name: Print docker access result
+      debug:
+        msg: "{{ dockerlogin_result.stdout }}"
+
+    - name: Deployment monitor services
+      shell: |
+        kubectl apply -f . --record
+      args:
+        chdir: "{{ monitor_dir.stdout }}/monitor/{{ item }}"
+        executable: /bin/bash
+      with_items:
+        - "metrics"
+        - "alert-manager"
+        - "grafana"
+        - "kube-state-metrics"
+        - "prometheus"
+      register: deployment_result
+
+    - name: Print deployment results
+      debug:
+        msg: "{{ deployment_result }}"

@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: promethues-data
+  namespace: kube-monitor
+spec:
+  capacity:
+    storage: 2000Gi
+  accessModes:
+    - ReadWriteMany
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "promethues_data"
+    readOnly: false
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: promethues-data
+  namespace: kube-monitor
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2000Gi
+
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  labels:
+    name: prometheus-deployment
+  name: prometheus
+  namespace: kube-monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/prometheus:__VERSION__
+        name: prometheus
+        command:
+        - "/bin/prometheus"
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--storage.tsdb.path=/prometheus"
+        - "--storage.tsdb.retention.time=30d"
+        - "--web.enable-admin-api"
+        #- "--storage.tsdb.retention.size=2GB"
+        - "--storage.tsdb.no-lockfile"
+        - "--storage.tsdb.min-block-duration=30m"
+        - "--storage.tsdb.max-block-duration=1d"
+        - "--web.enable-lifecycle"
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - mountPath: "/prometheus"
+          name: data
+        - mountPath: "/etc/prometheus"
+          name: config-volume
+          # for etcd certificate
+        - mountPath: "/var/run/secrets/kubernetes.io/k8s-certs/etcd/"
+          name: k8s-certs
+        - mountPath: /etc/localtime
+          name: tz-config
+        resources:
+          requests:
+            cpu: 5000m
+            memory: 20Gi
+          limits:
+            cpu: 5000m
+            memory: 20Gi
+      serviceAccountName: prometheus
+      securityContext:
+        runAsUser: 0
+      volumes:
+      - name: data
+        #emptyDir: {}
+        persistentVolumeClaim:
+          claimName: promethues-data
+      - name: config-volume
+        configMap:
+          name: prometheus-config
+      - name: k8s-certs
+        secret:
+          secretName: etcd-certs
+      - name: tz-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Shanghai
+      imagePullSecrets:
+      - name: gitlab-registry
+      terminationGracePeriodSeconds: 20

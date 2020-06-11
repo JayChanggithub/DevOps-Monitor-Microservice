@@ -1,0 +1,29 @@
+prometheus_version: '1.0.5'
+
+node_exporter_version: '1.0.2'
+
+metrics_server_version: '1.0.2'
+
+grafana_version: '1.0.2'
+
+kube_state_metrics_version: '1.0.2'
+
+alertmanager_version: '1.0.3'
+
+mongo_exporter_version: '1.0.3'
+
+# fixed variables
+remote_plugin: '/srv'
+
+gitlab_token: 'Bs-VGxAU-EDXpVXRiVww'
+
+ssh_pub_key: './ssh/id_rsa.pub'
+
+# monitor deployment configuration
+prometheus_deploy_config: 'prometheus-deploy.yaml'
+nodeexporter_deploy_config: 'nodeexporter-deploy.yaml'
+grafana_deploy_config: 'grafana-svc.yaml'
+metrics_deploy_config: 'metrics_server-deploy.yaml'
+kube_state_metrics_deploy_config: 'kube-state-metrics.yaml'
+alert_manager_deploy_config: 'alertmanager-deployment.yaml'
+mongo_exporter_deploy_config: 'mongo-exporter.yaml'
