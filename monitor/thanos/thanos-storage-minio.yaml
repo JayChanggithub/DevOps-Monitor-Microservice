@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-objectstorage
+  namespace: thanos
+type: Opaque
+stringData:
+  thanos.yaml: |-
+    type: S3
+    config:
+      bucket: promethues
+      endpoint: minio.thanos.svc.cluster.local:9000
+      access_key: minio
+      insecure: true
+      secret_key: minio123
+      signature_version2: false

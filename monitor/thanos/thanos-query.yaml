@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-querier
+  namespace: thanos
+  labels:
+    app: thanos-querier
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: thanos-querier
+  template:
+    metadata:
+      labels:
+        app: thanos-querier
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - thanos-query
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      volumes:
+      - name: tz-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Shanghai
+      containers:
+      - name: thanos
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/thanos:1.0.0
+        args:
+        - query
+        - --log.level=debug
+        - --query.replica-label=replica
+        - --query.auto-downsampling
+        - --grpc-address=0.0.0.0:10901
+        - --http-address=0.0.0.0:10902
+        - --query.partial-response
+        # - --query.replica-label=rule_replica
+        # Discover local store APIs using DNS SRV.
+        - --store=dnssrv+thanos-store-gateway:10901
+        ports:
+        - name: http
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+        volumeMounts:
+        - mountPath: /etc/localtime
+          name: tz-config
+      imagePullSecrets:
+      - name: gitlab-registry
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-querier
+  namespace: thanos
+  labels:
+    app: thanos-querier
+spec:
+  ports:
+  - port: 9090
+    protocol: TCP
+    targetPort: http
+    name: http
+  selector:
+    app: thanos-querier

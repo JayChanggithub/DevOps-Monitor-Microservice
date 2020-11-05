@@ -19,7 +19,7 @@ We used the **Prometheus** **+** **Grafana** to monitor our microservice resourc
 ---
 
 ## Version
-`Rev: 1.0.3`
+`Rev: 1.0.5`
 
 ---
 

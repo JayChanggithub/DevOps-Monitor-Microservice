@@ -56,8 +56,8 @@ spec:
         - "--web.enable-admin-api"
         #- "--storage.tsdb.retention.size=2GB"
         - "--storage.tsdb.no-lockfile"
-        - "--storage.tsdb.min-block-duration=30m"
-        - "--storage.tsdb.max-block-duration=1d"
+        - "--storage.tsdb.min-block-duration=2h"
+        - "--storage.tsdb.max-block-duration=2h"
         - "--web.enable-lifecycle"
         ports:
         - containerPort: 9090

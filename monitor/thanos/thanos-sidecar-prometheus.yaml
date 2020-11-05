@@ -1,0 +1,308 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: prome-fast
+  namespace: thanos
+parameters:
+  volumetype: "replicate:3"
+provisioner: kubernetes.io/glusterfs
+reclaimPolicy: Delete
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prome-data1
+  namespace: thanos
+spec:
+  storageClassName: prome-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "prome-data1"
+    readOnly: false
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prome-data2
+  namespace: thanos
+spec:
+  storageClassName: prome-fast
+  capacity:
+    # best fit on production
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "prome-data2"
+    readOnly: false
+
+---
+
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prome-data3
+  namespace: thanos
+spec:
+  storageClassName: prome-fast
+  capacity:
+    # best fit on production
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "prome-data3"
+    readOnly: false
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: thanos
+  labels:
+    app: prometheus
+spec:
+  serviceName: "prometheus-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: prometheus
+      thanos-store-api: "true"
+      app.kubernetes.io/name: thanos-query
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        thanos-store-api: "true"
+        app.kubernetes.io/name: thanos-query
+    spec:
+      terminationGracePeriodSeconds: 20
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - prometheus
+              topologyKey: kubernetes.io/hostname
+      # podManagementPolicy: Parallel
+      serviceAccountName: thanos
+      securityContext:
+        runAsUser: 0
+      volumes:
+      - name: k8s-certs
+        secret:
+          secretName: etcd-certs
+      - name: object-storage-config
+        secret:
+          secretName: thanos-objectstorage
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-rules
+        configMap:
+          name: prometheus-rules
+      - name: prometheus-config-shared
+        emptyDir: {}
+      - name: tz-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Shanghai
+      containers:
+      - name: prometheus
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/prometheus:1.0.5
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--config.file=/etc/prometheus-shared/prometheus.yaml"
+        - "--storage.tsdb.path=/prometheus"
+        - "--storage.tsdb.retention.time=10d"
+        - "--web.enable-admin-api"
+        - "--storage.tsdb.no-lockfile"
+        - "--storage.tsdb.min-block-duration=2h"
+        - "--storage.tsdb.max-block-duration=2h"
+        - "--web.enable-lifecycle"
+        - "--web.route-prefix=/"
+        ports:
+        - name: http
+          containerPort: 9090
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 5000m
+            memory: 15Gi
+          limits:
+            cpu: 5000m
+            memory: 15Gi
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-config-shared
+          mountPath: /etc/prometheus-shared/
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules
+        - name: data
+          mountPath: "/prometheus"
+        - name: tz-config
+          mountPath: /etc/localtime
+        - name: k8s-certs
+          mountPath: "/var/run/secrets/kubernetes.io/k8s-certs/etcd/"
+      - name: thanos
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/thanos:1.0.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - sidecar
+        - --log.level=debug
+        - --tsdb.path=/prometheus
+        - --prometheus.url=http://localhost:9090
+        - --reloader.config-file=/etc/prometheus/prometheus.yaml.tmpl
+        - --reloader.config-envsubst-file=/etc/prometheus-shared/prometheus.yaml
+        - --reloader.rule-dir=/etc/prometheus/rules/
+        - --objstore.config-file=/etc/secret/thanos.yaml
+        - --http-address=0.0.0.0:10902
+        - --grpc-address=0.0.0.0:10901
+        ports:
+        - name: http-sidecar
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: prometheus-config-shared
+          mountPath: /etc/prometheus-shared/
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules
+        - name: data
+          mountPath: "/prometheus"
+        - name: object-storage-config
+          mountPath: /etc/secret
+        - name: tz-config
+          mountPath: /etc/localtime
+      imagePullSecrets:
+      - name: gitlab-registry
+      terminationGracePeriodSeconds: 20
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        app: prometheus
+      annotations:
+         volume.beta.kubernetes.io/storage-class: "prome-fast"
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 500Gi
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: prometheus-headless
+  namespace: thanos
+  labels:
+    name: prometheus
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: prometheus
+  ports:
+  - name: http
+    protocol: TCP
+    port: 9090
+    targetPort: http
+  - name: grpc
+    port: 10901
+    targetPort: grpc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-0-service
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+  namespace: thanos
+  labels:
+    name: prometheus
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: prometheus-0
+  ports:
+    - name: prometheus
+      port: 8080
+      targetPort: http
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-1-service
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+  namespace: thanos
+  labels:
+    name: prometheus
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: prometheus-1
+  ports:
+    - name: prometheus
+      port: 8080
+      targetPort: http
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-2-service
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+  namespace: thanos
+  labels:
+    name: prometheus
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: prometheus-2
+  ports:
+    - name: prometheus
+      port: 8080
+      targetPort: http

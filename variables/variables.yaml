@@ -12,6 +12,10 @@ alertmanager_version: '1.0.3'
 
 mongo_exporter_version: '1.0.3'
 
+blackbox_exporter_version: '1.0.0'
+
+elastic_exporter_version: '1.0.0'
+
 # fixed variables
 remote_plugin: '/srv'
 
@@ -27,3 +31,5 @@ metrics_deploy_config: 'metrics_server-deploy.yaml'
 kube_state_metrics_deploy_config: 'kube-state-metrics.yaml'
 alert_manager_deploy_config: 'alertmanager-deployment.yaml'
 mongo_exporter_deploy_config: 'mongo-exporter.yaml'
+blckbox_exporter_deploy_config: 'blackbox-exporter.yaml'
+elastic_exporter_deploy_config: 'elastic-exporter.yaml'

@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: thanos
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1000Gi
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-pvc
+  namespace: thanos
+spec:
+  capacity:
+    storage: 1000Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "minio-data"
+    readOnly: false
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: thanos
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: minio-pvc
+      - name: tz-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Shanghai
+      containers:
+      - name: minio
+        volumeMounts:
+        - name: data
+          mountPath: "/data"
+        - name: tz-config
+          mountPath: /etc/localtime
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/minio:1.0.0
+        args:
+        - server
+        - /data
+        env:
+        - name: MINIO_ACCESS_KEY
+          value: "minio"
+        - name: MINIO_SECRET_KEY
+          value: "minio123"
+        ports:
+        - containerPort: 9000
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 90
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: gitlab-registry
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: thanos
+spec:
+  ports:
+  - port: 9000
+    targetPort: 9000
+    protocol: TCP
+  selector:
+    app: minio
+
+---
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: thanos
+spec:
+  rules:
+  - host: minio.cloudnative.ies.inventec
+    http:
+      paths:
+      - backend:
+          serviceName: minio
+          servicePort: 9000

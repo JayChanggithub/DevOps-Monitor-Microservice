@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: blackbox-exporter
+  name: blackbox-exporter
+  namespace: kube-monitor
+data:
+  blackbox.yml: |-
+    modules:
+      http_2xx:  # http 检测模块  Blockbox-Exporter 中所有的探针均是以 Module 的信息进行配置
+        prober: http
+        timeout: 10s
+        http:
+          valid_http_versions: ["HTTP/1.1", "HTTP/2"]   
+          valid_status_codes: [200]  # 这里最好作一个返回状态码，在grafana作图时，有明示---陈刚注释。
+          method: GET
+          preferred_ip_protocol: "ip4"
+      http_post_2xx: # http post 监测模块
+        prober: http
+        timeout: 10s
+        http:
+          valid_http_versions: ["HTTP/1.1", "HTTP/2"]
+          method: POST
+          preferred_ip_protocol: "ip4"
+      tcp_connect:  # TCP 检测模块
+        prober: tcp
+        timeout: 10s
+      dns:  # DNS 检测模块
+        prober: dns
+        dns:
+          transport_protocol: "tcp"  # 默认是 udp
+          preferred_ip_protocol: "ip4"  # 默认是 ip6
+          query_name: "kubernetes.default.svc.cluster.local"
+        
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: blackbox-exporter
+  namespace: kube-monitor
+  labels:
+    app: blackbox-exporter
+  annotations:
+    deployment.kubernetes.io/revision: 1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blackbox-exporter
+  template:
+    metadata:
+      labels:
+        app: blackbox-exporter
+    spec:
+      volumes:
+      - name: config
+        configMap:
+          name: blackbox-exporter
+          defaultMode: 420
+      containers:
+      - name: blackbox-exporter
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/blackbox-exporter:__VERSION__
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config.file=/etc/blackbox_exporter/blackbox.yml
+        - --log.level=info
+        - --web.listen-address=:9115
+        ports:
+        - name: blackbox-port
+          containerPort: 9115
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/blackbox_exporter
+        readinessProbe:
+          tcpSocket:
+            port: 9115
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+      imagePullSecrets:
+      - name: gitlab-registry
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: blackbox-exporter
+  namespace: kube-monitor
+spec:
+  selector:
+    app: blackbox-exporter
+  ports:
+    - name: blackbox-port
+      protocol: TCP
+      port: 9115
+
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: blackbox-ingress
+  namespace: kube-monitor
+spec:
+  rules:
+  - host: blackbox.cloudnative.ies.inventec
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: blackbox-exporter
+          servicePort: blackbox-port
+

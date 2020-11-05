@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: compact-pvc
+  namespace: thanos
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Gi
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: compact-pvc
+  namespace: thanos
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "compact-pvc"
+    readOnly: false
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-compactor
+  namespace: thanos
+  labels:
+    app: thanos-compactor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-compactor
+  serviceName: thanos-compactor
+  template:
+    metadata:
+      labels:
+        app: thanos-compactor
+    spec:
+      containers:
+      - name: thanos
+        image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/thanos:1.0.0
+        args:
+        - "compact"
+        - "--log.level=debug"
+        - "--debug.accept-malformed-index"
+        - "--data-dir=/data"
+        - "--objstore.config-file=/etc/secret/thanos.yaml"
+        - "--wait"
+        - "--retention.resolution-raw=90d"
+        - "--retention.resolution-5m=180d"
+        - "--retention.resolution-1h=360d"
+        ports:
+        - name: http
+          containerPort: 10902
+        livenessProbe:
+          httpGet:
+            port: 10902
+            path: /-/healthy
+          initialDelaySeconds: 10
+        readinessProbe:
+          httpGet:
+            port: 10902
+            path: /-/ready
+          initialDelaySeconds: 15
+        volumeMounts:
+        - name: object-storage-config
+          mountPath: /etc/secret
+          readOnly: false
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: object-storage-config
+        secret:
+          secretName: thanos-objectstorage
+      - name: data
+        persistentVolumeClaim:
+          claimName: compact-pvc
+      imagePullSecrets:
+      - name: gitlab-registry

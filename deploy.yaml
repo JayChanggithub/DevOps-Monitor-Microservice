@@ -108,6 +108,22 @@
       tags:
         - "{{ alert_manager_deploy_config }}"
 
+    - name: Modified "blckbox-exporter" {{ blckbox_exporter_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/prometheus/{{ blckbox_exporter_deploy_config }}"
+        replace: "{{ blackbox_exporter_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ blckbox_exporter_deploy_config }}"
+
+    - name: Modified "elastic-exporter" {{ elastic_exporter_deploy_config }}
+      replace:
+        path: "{{ monitor_dir.stdout }}/monitor/prometheus/{{ elastic_exporter_deploy_config }}"
+        replace: "{{ elastic_exporter_version }}"
+        regexp: "__VERSION__"
+      tags:
+        - "{{ elastic_exporter_deploy_config }}"
+
     - name: Docker login our registry server
       shell: |
         echo "{{ gitlab_token }}" | \

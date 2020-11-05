@@ -1,0 +1,150 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: storegetway-fast
+  namespace: thanos
+parameters:
+  volumetype: "replicate:2"
+provisioner: kubernetes.io/glusterfs
+reclaimPolicy: Delete
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: store-data1
+  namespace: thanos
+spec:
+  storageClassName: storegetway-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "store-data1"
+    readOnly: false
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: store-data2
+  namespace: thanos
+spec:
+  storageClassName: storegetway-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "store-data2"
+    readOnly: false
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-store-gateway
+  namespace: thanos
+  labels:
+    app: thanos-store-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: thanos-store-gateway
+  serviceName: thanos-store-gateway
+  template:
+    metadata:
+      labels:
+        app: thanos-store-gateway
+        thanos-store-api: "true"
+    spec:
+      containers:
+        - name: thanos
+          image: registry.ipt-gitlab:8081/sit-develop-tool/ipt-microservice-monitoring/thanos:1.0.0
+          args:
+          - "store"
+          - "--log.level=debug"
+          - "--data-dir=/data"
+          - "--objstore.config-file=/etc/secret/thanos.yaml"
+          - "--index-cache-size=500MB"
+          - "--chunk-pool-size=500MB"
+          - "--grpc-address=0.0.0.0:10901"
+          - "--http-address=0.0.0.0:10902"
+          ports:
+          - name: http
+            containerPort: 10902
+          - name: grpc
+            containerPort: 10901
+          livenessProbe:
+            httpGet:
+              port: 10902
+              path: /-/healthy
+          readinessProbe:
+            httpGet:
+              port: 10902
+              path: /-/ready
+          volumeMounts:
+          - name: object-storage-config
+            mountPath: /etc/secret
+            readOnly: false
+          - name: tz-config
+            mountPath: /etc/localtime
+          - name: data
+            mountPath: /data
+          resources:
+            requests:
+              cpu: 500m
+              memory: 5Gi
+            limits:
+              cpu: 1000m
+              memory: 10Gi
+      volumes:
+      - name: object-storage-config
+        secret:
+          secretName: thanos-objectstorage
+      - name: tz-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Shanghai
+      imagePullSecrets:
+      - name: gitlab-registry
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        app: thanos-store-gateway
+      annotations:
+         volume.beta.kubernetes.io/storage-class: "storegetway-fast"
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 500Gi
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-store-gateway
+  namespace: thanos
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: grpc
+    port: 10901
+    targetPort: grpc
+  - name: http
+    port: 10902
+    targetPort: http
+  selector:
+    thanos-store-api: "true"

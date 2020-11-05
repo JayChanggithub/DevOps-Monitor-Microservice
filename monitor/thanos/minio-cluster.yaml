@@ -1,0 +1,211 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: minio-fast
+  namespace: thanos
+parameters:
+  volumetype: "replicate:4"
+provisioner: kubernetes.io/glusterfs
+reclaimPolicy: Delete
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-data1
+  namespace: thanos
+spec:
+  storageClassName: minio-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "minio-data1"
+    readOnly: false
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-data2
+  namespace: thanos
+spec:
+  storageClassName: minio-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "minio-data2"
+    readOnly: false
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-data3
+  namespace: thanos
+spec:
+  storageClassName: minio-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "minio-data3"
+    readOnly: false
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: minio-data4
+  namespace: thanos
+spec:
+  storageClassName: minio-fast
+  capacity:
+    # best fit on production, validation env 200m
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  glusterfs:
+    endpoints: "gluster-cluster"
+    path: "minio-data4"
+    readOnly: false
+---
+
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: thanos
+spec:
+  # podManagementPolicy: Parallel
+  serviceName: minio
+  replicas: 4
+  template:
+    metadata:
+      annotations:
+        pod.alpha.kubernetes.io/initialized: "true"
+      labels:
+        app: minio
+    spec:
+      volumes:
+       - name: tz-config
+         hostPath:
+           path: /usr/share/zoneinfo/Asia/Shanghai
+      containers:
+      - name: minio
+        env:
+        - name: MINIO_ACCESS_KEY
+          value: "minio"
+        - name: MINIO_SECRET_KEY
+          value: "minio123"
+        # image: minio/minio:RELEASE.2020-03-25T07-03-04Z
+        # image: minio/minio:RELEASE.2020-10-09T22-55-05Z
+        # image: minio/minio:RELEASE.2020-11-12T22-33-34Z
+        image: minio/minio
+        args:
+        - server
+        - http://minio-0.minio.kube-monitor.svc.cluster.local/data
+        - http://minio-1.minio.kube-monitor.svc.cluster.local/data
+        - http://minio-2.minio.kube-monitor.svc.cluster.local/data
+        - http://minio-3.minio.kube-monitor.svc.cluster.local/data
+        ports:
+        - name: minio-port
+          containerPort: 9000
+          hostPort: 9000
+        # These volume mounts are persistent. Each pod in the PetSet
+        # gets a volume mounted based on this field.
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tz-config
+          mountPath: /etc/localtime
+        # readinessProbe:
+        #  httpGet:
+        #    path: /minio/health/ready
+        #    port: 9000
+        #  initialDelaySeconds: 90
+        #  periodSeconds: 10
+        #livenessProbe:
+        #  httpGet:
+        #    path: /minio/health/live
+        #    port: 9000
+        #  initialDelaySeconds: 30
+        #  periodSeconds: 10
+
+  # These are converted to volume claims by the controller
+  # and mounted at the paths mentioned above.
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "minio-fast"
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: thanos
+  labels:
+    app: minio
+spec:
+  clusterIP: None
+  ports:
+    - port: 9000
+      name: minio
+  selector:
+    app: minio
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: thanos
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  type: NodePort
+  ports:
+    - port: 9000
+      # targetPort: 9000
+      protocol: TCP
+      nodePort: 30000
+  selector:
+    app: minio
+
+---
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: thanos
+spec:
+  rules:
+  - host: minio.cloudnative.ies.inventec
+    http:
+      paths:
+      - backend:
+          serviceName: minio-service
+          servicePort: 9000

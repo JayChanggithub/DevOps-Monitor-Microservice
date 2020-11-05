@@ -2,19 +2,18 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: kube-monitor
+  namespace: thanos
 data:
-  prometheus.yml: |
+  prometheus.yaml.tmpl: |
     global:
-      scrape_interval:     15s
-      evaluation_interval: 15s
+      scrape_interval: 15s
+      scrape_timeout: 15s
+      external_labels:
+        cluster: prometheus-ha
+        replica: $(POD_NAME)
 
     rule_files:
-    - /etc/prometheus/rules.yml
-    alerting:
-      alertmanagers:
-      - static_configs:
-        - targets: ["alertmanager.cloudnative.ies.inventec:80"]
+    - /etc/prometheus/rules/*.yaml
 
     scrape_configs:
     - job_name: 'ipt-k8s-node1'
@@ -226,7 +225,7 @@ data:
         replacement: blackbox-exporter.kube-monitor.svc.cluster.local:9115
       - source_labels: [__param_target]
         target_label: instance
-    
+
 
     - job_name: 'kubernetes-ingresses'
       kubernetes_sd_configs:
@@ -246,7 +245,7 @@ data:
         target_label: kubernetes_namespace
       - source_labels: [__meta_kubernetes_ingress_name]
         target_label: kubernetes_name
- 
+
     - job_name: "kubernetes-service-dns"
       metrics_path: /probe
       params:
@@ -303,106 +302,3 @@ data:
       - source_labels: [__meta_kubernetes_pod_name]
         action: replace
         target_label: kubernetes_pod_name
-
-  rules.yml: |
-    groups:
-    - name: BasicAlert
-      rules:
-      - alert: InstanceDown
-        expr: up == 0
-        for: 5m
-        labels:
-          severity: page
-        annotations:
-          summary: "Instance {{ $labels.instance }} down"
-          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes.\n"
-
-      - alert: APIHighRequestLatency
-        expr: api_http_request_latencies_second{quantile="0.5"} > 1
-        for: 10m
-        annotations:
-          summary: "High request latency on {{ $labels.instance }}"
-          description: "{{ $labels.instance }} has a median request latency above 1s (current value: {{ $value }}s)\n"
-
-      - alert: NodeMemoryUsage
-        expr: 100 - (node_memory_MemFree_bytes+node_memory_Cached_bytes+node_memory_Buffers_bytes) / node_memory_MemTotal_bytes * 100 > 80
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Instance {{ $labels.instance }} 内存使用率过高"
-          description: "{{ $labels.instance }}内存使用大于 80% (当前值: {{ $value }})\n"
-
-    # - alert: ContainerMemoryUsage
-    #    expr: (sum(container_memory_usage_bytes) BY (instance, name) / sum(container_spec_memory_limit_bytes) BY (instance, name) * 100) > 80
-    #    for: 5m
-    #    labels:
-    #      severity: warning
-    #    annotations:
-    #      summary: "Container Memory usage (instance {{ $labels.instance }})"
-    #      description: "Container Memory usage is above 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-    #
-    #  - alert: ContainerCpuUsage
-    #    expr: (sum(rate(container_cpu_usage_seconds_total[1m])) BY (instance, name) * 100) > 80
-    #    for: 5m
-    #    labels:
-    #      severity: warning
-    #    annotations:
-    #      summary: "Container CPU usage (instance {{ $labels.instance }})"
-    #      description: "Container CPU usage is above 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-
-      - alert: HostHighCpuLoad
-        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Host high CPU load (instance {{ $labels.instance }})"
-          description: "CPU load is > 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-
-    - name: RedisAlert
-      rules:
-      - alert: RedisDown
-        expr: redis_up == 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Redis down (instance {{ $labels.instance }})"
-          description: "Redis instance is down\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-
-      - alert: RedisMissingMaster
-        expr: count(redis_instance_info{role="master"}) == 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Redis missing master (instance {{ $labels.instance }})"
-          description: "Redis cluster has no node marked as master.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-
-      - alert: RedisReplicationBroken
-        expr: delta(redis_connected_slaves[1m]) < 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Redis replication broken (instance {{ $labels.instance }})"
-          description: "Redis instance lost a slave\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-
-      - alert: RedisOutOfMemory
-        expr: redis_memory_used_bytes / redis_total_system_memory_bytes * 100 > 90
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Redis out of memory (instance {{ $labels.instance }})"
-          description: "Redis is running out of memory (> 90%)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-
-      - alert: RedisMissingBackup
-        expr: time() - redis_rdb_last_save_timestamp_seconds > 60 * 60 * 24
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Redis missing backup (instance {{ $labels.instance }})"
-          description: "Redis has not been backuped for 24 hours\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
