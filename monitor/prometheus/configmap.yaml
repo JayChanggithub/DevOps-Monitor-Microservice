@@ -226,7 +226,6 @@ data:
         replacement: blackbox-exporter.kube-monitor.svc.cluster.local:9115
       - source_labels: [__param_target]
         target_label: instance
-    
 
     - job_name: 'kubernetes-ingresses'
       kubernetes_sd_configs:
@@ -246,7 +245,7 @@ data:
         target_label: kubernetes_namespace
       - source_labels: [__meta_kubernetes_ingress_name]
         target_label: kubernetes_name
- 
+
     - job_name: "kubernetes-service-dns"
       metrics_path: /probe
       params:
@@ -312,53 +311,37 @@ data:
         expr: up == 0
         for: 5m
         labels:
-          severity: page
+          severity: critical
         annotations:
           summary: "Instance {{ $labels.instance }} down"
-          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes.\n"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes"
 
       - alert: APIHighRequestLatency
         expr: api_http_request_latencies_second{quantile="0.5"} > 1
         for: 10m
+        labels:
+          severity: critical
         annotations:
           summary: "High request latency on {{ $labels.instance }}"
-          description: "{{ $labels.instance }} has a median request latency above 1s (current value: {{ $value }}s)\n"
+          description: "{{ $labels.instance }} has a median request latency above 1s (current value: {{ $value }}s)"
 
       - alert: NodeMemoryUsage
         expr: 100 - (node_memory_MemFree_bytes+node_memory_Cached_bytes+node_memory_Buffers_bytes) / node_memory_MemTotal_bytes * 100 > 80
         for: 1m
         labels:
-          severity: warning
+          severity: critical
         annotations:
-          summary: "Instance {{ $labels.instance }} 内存使用率过高"
-          description: "{{ $labels.instance }}内存使用大于 80% (当前值: {{ $value }})\n"
-
-    # - alert: ContainerMemoryUsage
-    #    expr: (sum(container_memory_usage_bytes) BY (instance, name) / sum(container_spec_memory_limit_bytes) BY (instance, name) * 100) > 80
-    #    for: 5m
-    #    labels:
-    #      severity: warning
-    #    annotations:
-    #      summary: "Container Memory usage (instance {{ $labels.instance }})"
-    #      description: "Container Memory usage is above 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
-    #
-    #  - alert: ContainerCpuUsage
-    #    expr: (sum(rate(container_cpu_usage_seconds_total[1m])) BY (instance, name) * 100) > 80
-    #    for: 5m
-    #    labels:
-    #      severity: warning
-    #    annotations:
-    #      summary: "Container CPU usage (instance {{ $labels.instance }})"
-    #      description: "Container CPU usage is above 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          summary: "Instance {{ $labels.instance }} memory usage so higher"
+          description: "{{ $labels.instance }} memory usage rate more than 80% (Currently usage: {{ $value }}%)"
 
       - alert: HostHighCpuLoad
         expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
         for: 5m
         labels:
-          severity: warning
+          severity: critical
         annotations:
           summary: "Host high CPU load (instance {{ $labels.instance }})"
-          description: "CPU load is > 80% \n VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          description: "cpu load is more than 80% \n (Currently usage: {{ $value }}%)"
 
     - name: RedisAlert
       rules:
@@ -393,7 +376,7 @@ data:
         expr: redis_memory_used_bytes / redis_total_system_memory_bytes * 100 > 90
         for: 5m
         labels:
-          severity: warning
+          severity: critical
         annotations:
           summary: "Redis out of memory (instance {{ $labels.instance }})"
           description: "Redis is running out of memory (> 90%)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"

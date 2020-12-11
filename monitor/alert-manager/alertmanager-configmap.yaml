@@ -4,6 +4,27 @@ metadata:
   name: alertmanager-config
   namespace: kube-monitor
 data:
+  slack-alert.tmpl: |-
+    {{ define "slack-alert.html" }}
+    {{- if gt (len .Alerts.Firing) 0 -}}{{ range .Alerts }}
+     <p style="color:red;margin-bottom:0;"><b>@告警名稱 【{{ .Labels.alertname }}】</b></p>
+     <b>【實例】</b>: {{ .Labels.instance }}<br>
+     <b>【主機】</b>: {{ .Labels.job }}<br>
+     <b>【信息】</b>: {{ .Annotations.summary }}<br>
+     <b>【详情】</b>: {{ .Annotations.description }}<br>
+     <b>【級別】</b>: {{ .Labels.severity }}<br>
+     <b>【發生时间】</b>: {{ (.StartsAt.Add 28800e9).Format "2006-01-02 15:04:05" }}<br>
+    {{ end }}{{ end -}}
+    {{- if gt (len .Alerts.Resolved) 0 -}}{{ range .Alerts }}
+     <p style="color:blue;margin-bottom:0;"><b>@恢复事件【 {{ .Labels.alertname }}】</b></p>
+     <b>【實例】</b>: {{ .Labels.instance }}<br>
+     <b>【主機】</b>: {{ .Labels.job }}<br>
+     <b>【信息】</b>: {{ .Annotations.summary }}<br>
+     <b>【級別】</b>: {{ .Labels.severity }}<br>
+     <b>【發生时间】</b>: {{ (.StartsAt.Add 28800e9).Format "2006-01-02 15:04:05" }}<br>
+     <b>【恢复時間】</b>: {{ (.EndsAt.Add 28800e9).Format "2006-01-02 15:04:05" }}<br>
+    {{ end }}{{ end -}}
+    {{- end }}
   alertmanager.yml: |-
     global:
       resolve_timeout: 5m
@@ -13,29 +34,21 @@ data:
       smtp_auth_password: 'xxxxxxxxxxxxxxxxxx'
       smtp_hello: 'ies.inventec'
       smtp_require_tls: false
+    templates:
+    - '/etc/config/slack-alert.tmpl' 
     route:
       group_by: ['alertname', 'cluster']
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 5m
-      receiver: default
-      #routes:
-      #- receiver: email
-      #  group_wait: 10s
-      #  match:
-      #    team: node
+      receiver: SIT-TA
     receivers:
-    - name: 'default'
+    - name: 'SIT-TA'
       email_configs:
       - to: 'chang.jay@inventec.com, Chiang.Keith@inventec.com, Liu.AllenJH@inventec.com, Wu.Wade@inventec.com, Fan.Tian-yuan@inventec.com.cn'
+        html: '{{ template "slack-alert.html" . }}'
+        headers: { Subject: "【Prometheus Alert Announce】【Alert counts: {{ .Alerts.Firing | len }}】"}
         send_resolved: true
       webhook_configs:
       - url: 'http://10.99.104.251:1990/api/v1/wechat-bot/alert-manager'
         send_resolved: true
-   # - name: 'email'
-   #   email_configs:
-   #   - to: 'chang.jay@inventec.com, Chiang.Keith@inventec.com, Liu.AllenJH@inventec.com, Wu.Wade@inventec.com, Fan.Tian-yuan@inventec.com.cn'
-   #     send_resolved: true
-   #   webhook_configs:
-   #   - url: 'http://10.99.104.251:1990/api/v1/wechat-bot/alert-manager'
-   #     send_resolved: true

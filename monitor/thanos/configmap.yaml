@@ -226,7 +226,6 @@ data:
       - source_labels: [__param_target]
         target_label: instance
 
-
     - job_name: 'kubernetes-ingresses'
       kubernetes_sd_configs:
       - role: ingress
