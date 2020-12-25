@@ -24,7 +24,7 @@ function prome_snapshot
         echo -e "\$prome_ip pod is not running!\n"
         exit 255
     fi
-    
+
     local backup_name=$(curl -XPOST $api)
     if [ "$backup_name" != "" ]; then
         local name=$(echo $backup_name \
@@ -32,7 +32,7 @@ function prome_snapshot
                      | awk -F ':' '{print $2}' \
                      | tr -d '}}|"' \
                      | sed -E s'/ //'g \
-                     | head -n 1)             
+                     | head -n 1)
     fi
     kubectl -n $ns exec -it $get_pod -- ls /prometheus/snapshots \
                                         | awk '{print $NF}' \
@@ -40,17 +40,36 @@ function prome_snapshot
                                         | grep -v '^\..$' \
                                         | tee ${cache_file}
     sed -i -r 's/'$(echo -e "\033")'\[[0-9]{1,2}(;([0-9]{1,2})?)?[mK]|\r//g' ${cache_file}
-        
-    if [ -n "(cat $cache_file)" ]; then 
+
+    if [ -n "(cat $cache_file)" ]; then
         for d in $(cat $cache_file)
-        do 
+        do
             local d_name=$(echo $d | grep -Eo '[0-9a-zA-Z]+\-[0-9a-zA-Z]+')
-            
+
             if [ "$d_name" == "$name" ]; then
                 kubectl -n $ns exec -it $get_pod -- mv -f /prometheus/snapshots/${d_name} \
                                                           /prometheus/snapshots/${tm}
                 kubectl -n $ns exec -it $get_pod -- ls /prometheus/snapshots/
             fi
+        done
+    fi
+
+    # reserve the latest sixteen backup files
+    local backups_num=$(kubectl -n $ns exec -it $get_pod -- ls -al /prometheus/snapshots/ \
+            | awk '/^d/ {print $NF}' \
+            | awk -F 'm' '{print $2}' \
+            | grep -coE '[0-9]+')
+    if [ $backups_num -gt 16 ]; then
+        local backups_rm=($(kubectl -n $ns exec -it $get_pod -- ls -al /prometheus/snapshots/ \
+              | awk '/^d/ {print $NF}' \
+              | awk -F 'm' '{print $2}' \
+              | grep -oE '[0-9]+' \
+              | sort -Vr \
+              | sed -n 17,${backups_num}p))
+        for f in "${backups_rm[@]}"
+        do
+            kubectl -n $ns exec -it $get_pod -- rm -rf /prometheus/snapshots/${f}
+            printf "%s\t%30s %s ]\n" " * remove data " "[" "$f."
         done
     fi
 }

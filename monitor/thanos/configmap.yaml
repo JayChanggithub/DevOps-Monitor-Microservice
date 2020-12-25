@@ -15,6 +15,17 @@ data:
     rule_files:
     - /etc/prometheus/rules/*.yaml
 
+    alerting:
+      alert_relabel_configs:
+      - regex: replica
+        action: labeldrop
+
+      alertmanagers:
+        - scheme: http
+          path_prefix: /
+          static_configs:
+            - targets: ["alertmanager.cloudnative.ies.inventec:80"]
+
     scrape_configs:
     - job_name: 'ipt-k8s-node1'
       metrics_path: /metrics
@@ -149,22 +160,17 @@ data:
         action: keep
         regex: default;kubernetes;https
 
-    - job_name: 'kubernetes-nodes'
+    - job_name: 'kubernetes-node-exporter'
       kubernetes_sd_configs:
       - role: node
-      scheme: https
-      tls_config:
-        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
       relabel_configs:
+      - source_labels: [__address__]
+        regex: '(.*):10250'
+        replacement: '${1}:31672'
+        target_label: __address__
+        action: replace
       - action: labelmap
         regex: __meta_kubernetes_node_label_(.+)
-      - target_label: __address__
-        replacement: kubernetes.default.svc:443
-      - source_labels: [__meta_kubernetes_node_name]
-        regex: (.+)
-        target_label: __metrics_path__
-        replacement: /api/v1/nodes/${1}/proxy/metrics
 
     - job_name: 'kubernetes-cadvisor'
       kubernetes_sd_configs:

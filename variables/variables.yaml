@@ -19,7 +19,7 @@ elastic_exporter_version: '1.0.0'
 # fixed variables
 remote_plugin: '/srv'
 
-gitlab_token: 'Bs-VGxAU-EDXpVXRiVww'
+gitlab_token: '_osc8kHj-tDksodZsoPo'
 
 ssh_pub_key: './ssh/id_rsa.pub'
 
